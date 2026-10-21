@@ -44,7 +44,7 @@ const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHea
 const summaryLimiter = rateLimit({ windowMs: 60 * 1000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false });
 const publicUser = user => ({ id: user._id, name: user.name, email: user.email, photo: user.photo || '' });
 const signToken = user => jwt.sign({ sub: user._id.toString() }, process.env.JWT_SECRET, { expiresIn: '7d' });
-const isMember = (conversation, userId) => conversation.participants.some(id => id.toString() === userId.toString());
+const isMember = (conversation, userId) => conversation.participants.some(person => (person._id ?? person).toString() === userId.toString());
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok', database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected' }));
 app.post('/api/auth/register', authLimiter, async (req, res) => {
