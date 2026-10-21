@@ -1,13 +1,67 @@
-# Mingle — MERN chat app
+# Mingle — Chat App with AI Recaps
 
-Mingle is a React + Vite client with an Express/Node API and MongoDB persistence. It includes email/password accounts, profile updates, private photo/PDF uploads, one-to-one chats, and a Gemini chat recap endpoint. The Gemini key stays on the server.
+Mingle is a full-stack MERN chat application. People sign up with an email and password, start private one-to-one chats, share photos and PDFs, and get an AI-written recap of any conversation powered by Google Gemini.
+
+**🔗 Live demo: https://mingle-let-s-chat.vercel.app/
+
+> To try it: create an account, then open a second account in a private/incognito window and start a chat using the first account's email.
+
+## Features
+
+- Email and password accounts with hashed passwords (bcrypt) and signed JWT sessions
+- Profile name and photo updates
+- Private one-to-one conversations, started by entering another user's email
+- Photo and PDF attachments (up to 12 MB locally, about 4.5 MB on Vercel)
+- Edit your own sent messages
+- **AI chat recap:** summarizes the last 150 messages into 3–5 bullets with Gemini
+- Rate limiting on sign-in and recap requests, plus Helmet security headers
+- Responsive layout for desktop and mobile
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 19, Vite |
+| Backend | Node.js, Express 5 |
+| Database | MongoDB Atlas, Mongoose |
+| AI | Google Gemini (`@google/genai`) |
+| Hosting | Vercel (serverless functions) |
+
+## Project structure
+
+```
+├── api/index.js        # Vercel entry point for the Express app
+├── server/
+│   ├── index.js        # Routes: auth, chats, messages, files, AI recap
+│   ├── auth.js         # JWT authentication middleware
+│   └── models.js       # User, Conversation, Message, StoredFile schemas
+├── src/                # React client
+├── vercel.json         # Vercel build and routing config
+└── .env.example        # Template for environment variables
+```
+
+## Environment variables
+
+Copy `.env.example` to `.env` for local development, or add these in your hosting dashboard.
+
+| Name | Required | Description |
+|---|---|---|
+| `MONGODB_URI` | Yes | MongoDB Atlas connection string, ending in `/mingle?retryWrites=true&w=majority` |
+| `JWT_SECRET` | Yes | Long random string (32+ characters) used to sign sessions |
+| `GEMINI_API_KEY` | Yes | Key from [Google AI Studio](https://aistudio.google.com/app/apikey) |
+| `GEMINI_MODEL` | No | Gemini model name. Defaults to `gemini-3.8-flash`. If it is busy or unavailable, try `gemini-3.1-flash-lite` |
+| `CLIENT_ORIGIN` | Local only | Frontend origin for CORS. Defaults to `http://localhost:5173` |
+| `PORT` | Local only | API port. Defaults to `4000` |
+| `NODE_ENV` | Hosting | Set to `production` when deployed |
+
+Never commit `.env` or put keys in frontend code.
 
 ## Run locally
 
 1. Install Node.js 20 or newer.
-2. Create a MongoDB Atlas cluster, a database user, and allow your development IP in Atlas Network Access. Copy the cluster connection string.
-3. Copy `.env.example` to `.env` in this folder. Set `MONGODB_URI`, a long random `JWT_SECRET`, and the Gemini key. Keep `.env` private and out of Git.
-4. Install packages and start both servers:
+2. Create a free [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) cluster, add a database user, and allow your IP under Network Access.
+3. Copy `.env.example` to `.env` and fill in the values above.
+4. Install and start both servers:
 
    ```sh
    npm install
@@ -16,21 +70,17 @@ Mingle is a React + Vite client with an Express/Node API and MongoDB persistence
 
 5. Open `http://localhost:5173`. The API runs at `http://localhost:4000`.
 
-To create a Gemini key, use [Google AI Studio API keys](https://aistudio.google.com/app/apikey), then place it in `.env` as `GEMINI_API_KEY`. The default model is `gemini-3.8-flash`; change `GEMINI_MODEL` if you want another model available to your account. The recap route returns a clear setup error until the key is configured.
+## Deploy to Vercel
 
-## Production build
+1. Push this repository to GitHub, with `package.json` at the repository root.
+2. In [Vercel](https://vercel.com), choose **Add New → Project** and import the repository.
+3. Vercel detects Vite. Build command: `npm run build`. Output directory: `dist`.
+4. Add `MONGODB_URI`, `JWT_SECRET`, `GEMINI_API_KEY`, and `NODE_ENV=production` under **Environment Variables**.
+5. In MongoDB Atlas, add `0.0.0.0/0` under **Network Access**, because Vercel's IP addresses change.
+6. Deploy, then open `/api/health`. It should return `{"status":"ok","database":"connected"}`.
+7. If the project is not publicly reachable, turn off **Vercel Authentication** under **Settings → Deployment Protection**.
 
-Run `npm run build`, then set `NODE_ENV=production` and start with `npm start`. Express serves the built client and API from the same service. Configure these server environment variables in your hosting provider: `MONGODB_URI`, `JWT_SECRET`, `GEMINI_API_KEY`, `GEMINI_MODEL`, `CLIENT_ORIGIN`, `NODE_ENV`, and `PORT`.
-
-For Render, create a Node web service rooted at this folder, use `npm install && npm run build` as the build command and `npm start` as the start command. Add environment variables through the Render dashboard; do not commit `.env` or put API keys in Vite variables.
-
-## Data and security notes
-
-- Passwords are hashed with bcrypt; API sessions use signed JWTs.
-- Gemini summaries require a signed-in participant and are rate-limited. Chat transcripts are sent to Google Gemini to produce the recap.
-- Uploaded files are limited to 12 MB and supported photo formats or PDF. File routes check the signed-in user's membership before serving an upload.
-- This starter stores uploads on the server's local disk. For a multi-instance or ephemeral host such as Render, connect private object storage before relying on uploads in production; local uploads may not survive redeploys.
-- Use HTTPS in production, a unique long JWT secret, an Atlas database user with least privilege, and a restricted Atlas IP allowlist. Add email verification, password reset, and account deletion before a public launch.
+After changing an environment variable, redeploy for it to take effect.
 
 ## API overview
 
@@ -39,10 +89,26 @@ For Render, create a Node web service rooted at this folder, use `npm install &&
 - `GET /api/conversations/:id/messages`, `POST /api/conversations/:id/messages`
 - `PATCH /api/conversations/:id/messages/:messageId` (sender only)
 - `POST /api/conversations/:id/summarize`
-- `GET /api/files/:filename` (authenticated, conversation-member only)
+- `GET /api/files/:filename` (signed in and a member of the conversation)
+- `GET /api/health`
 
-The frontend polls for new messages every eight seconds. Add Socket.IO if you want real-time delivery and presence.
+## Known limitations
 
-Sent text messages can be edited by their sender; the API rejects edits to another participant's message. The Mingle app starts with an empty people list. Use the plus button to start a conversation with an existing Mingle user's email.
+- New messages appear after a short delay (up to 8 seconds), because the client polls instead of using WebSockets.
+- Uploaded files are stored in MongoDB. On Vercel, requests above about 4.5 MB are rejected, and uploads count toward the Atlas free-tier storage (512 MB).
+- Chat text is sent to Google Gemini to produce recaps. Do not use the recap feature for content you would not share with Google.
+- Gemini can return temporary `503` or `429` errors at busy times or when free quota runs out. Retry, or switch `GEMINI_MODEL`.
+- Not yet included: email verification, password reset, account deletion, and real-time presence.
 
-`render.yaml` defines the Render web service. Render will prompt for `MONGODB_URI` and `GEMINI_API_KEY` as private environment variables; add these in the Render dashboard. Create the GitHub repository first, push this folder as the repository root, and connect it to Render. The Render disk is ephemeral in the default configuration, so configure persistent/private storage for uploaded files before production use.
+## Security notes
+
+- Passwords are hashed with bcrypt, and sessions use signed JWTs that expire after 7 days.
+- Files are served only to signed-in members of the related conversation.
+- Use a unique, long `JWT_SECRET` and an Atlas database user with only the access it needs.
+
+## Ideas for next steps
+
+- Real-time messaging with Socket.IO or a hosted realtime service
+- Object storage (for example Cloudflare R2 or S3) for large files
+- Automatic fallback to a second Gemini model when the first is busy
+- Group chats, read receipts, and message search
