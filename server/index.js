@@ -150,16 +150,20 @@ app.post('/api/conversations/:id/summarize', requireAuth, summaryLimiter, async 
   const messages = await Message.find({ conversation: conversation._id }).populate('sender', 'name').sort({ createdAt: -1 }).limit(150);
   if (!messages.length) return res.status(400).json({ error: 'There are no messages to summarize.' });
   const transcript = messages.reverse().map(message => `${message.sender.name}: ${message.text || `[shared ${message.attachment?.mimeType === 'application/pdf' ? 'PDF' : 'image'}: ${message.attachment?.name || 'file'}]`}`).join('\n').slice(-50000);
-  try {
+    try {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    const result = await ai.interactions.create({
+    const result = await ai.models.generateContent({
       model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
-      input: `Summarize this private chat in 3-5 concise bullets. Include decisions, plans, open questions, and useful dates if present. Do not invent details.\n\n${transcript}`
+      contents: `Summarize this private chat in 3-5 concise bullets. Include decisions, plans, open questions, and useful dates if present. Do not invent details.\n\n${transcript}`
     });
-    res.json({ summary: result.output_text || 'Gemini did not return a summary.' });
+    res.json({ summary: result.text || 'Gemini did not return a summary.' });
   } catch (error) {
-    console.error('Gemini summary failed:', error.message);
-    res.status(502).json({ error: 'Gemini could not summarize this chat right now.' });
+    console.error('Gemini summary failed:', error.status || '', error.message);
+    const hint = error.status === 429 ? 'Gemini is rate-limited or out of free quota. Wait a minute and try again.'
+      : error.status === 404 ? `Gemini model "${process.env.GEMINI_MODEL || 'gemini-3.8-flash'}" was not found. Set GEMINI_MODEL to a valid model.`
+      : [400, 401, 403].includes(error.status) ? 'Gemini rejected the request. Check that GEMINI_API_KEY is correct and active.'
+      : 'Gemini could not summarize this chat right now.';
+    res.status(502).json({ error: hint });
   }
 });
 
